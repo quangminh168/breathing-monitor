@@ -2,25 +2,13 @@
 breathing_worker.py
 --------------------
 Script CHẠY ĐỘC LẬP trên máy có camera. Đo nhịp thở liên tục bằng
-YOLO pose + chest ROI + motion tracking (tái sử dụng logic từ
-test_roi.py của bạn), rồi PUSH kết quả BPM lên Flask backend qua
-POST /api/breathing mỗi vài giây.
+YOLO pose + chest ROI + motion tracking.
 
-YÊU CẦU: các module bạn đã có sẵn phải nằm cùng cấp với script này
-(hoặc trong PYTHONPATH):
-    ai/roi_extractor.py
-    ai/motion_tracker.py
-    ai/signal_filter.py
-    ai/breathing_rate.py
+Hiển thị:
+- Video tracking ROI ngực
+- Biểu đồ nhịp thở realtime (OpenCV)
 
-Khác với test_roi.py (chạy 900 frame rồi dừng, vẽ plot), script này
-chạy VÔ HẠN, dùng một cửa sổ tín hiệu trượt (sliding window) để liên
-tục tính lại BPM và gửi lên server theo chu kỳ.
-
-Cách chạy:
-    python breathing_worker.py
-    python breathing_worker.py --api http://192.168.1.10:5000 --debug
-    python breathing_worker.py --window 30 --interval 10
+Push BPM lên Flask backend định kỳ.
 """
 
 import argparse
@@ -29,6 +17,7 @@ from collections import deque
 
 import cv2
 import requests
+import numpy as np
 from ultralytics import YOLO
 
 from ai_worker.ai.roi_extractor import ROIExtractor
@@ -37,23 +26,47 @@ from ai_worker.ai.signal_filter import SignalFilter
 from ai_worker.ai.breathing_rate import BreathingRateEstimator
 
 
+# ===================== CHART =====================
+def draw_signal_chart(values):
+    if len(values) < 10:
+        return
+
+    chart = np.zeros((300, 600, 3), dtype=np.uint8)
+
+    vals = np.array(values)
+
+    v_min, v_max = np.min(vals), np.max(vals)
+
+    if v_max - v_min < 1e-6:
+        return
+
+    normalized = (vals - v_min) / (v_max - v_min)
+
+    for i in range(1, len(normalized)):
+        x1 = int((i - 1) * 600 / len(normalized))
+        y1 = int(300 - normalized[i - 1] * 250)
+
+        x2 = int(i * 600 / len(normalized))
+        y2 = int(300 - normalized[i] * 250)
+
+        cv2.line(chart, (x1, y1), (x2, y2), (0, 255, 0), 2)
+
+    cv2.imshow("Breathing Signal", chart)
+
+
+# ===================== ARGPARSE =====================
 def parse_args():
-    parser = argparse.ArgumentParser(description="Breathing rate worker -> push to API")
-    parser.add_argument("--api", default="http://localhost:5000",
-                         help="Base URL của Flask backend (mặc định http://localhost:5000)")
-    parser.add_argument("--camera", type=int, default=0,
-                         help="Chỉ số camera cho cv2.VideoCapture (mặc định 0)")
-    parser.add_argument("--window", type=float, default=30.0,
-                         help="Độ dài cửa sổ tín hiệu dùng để tính BPM, đơn vị giây (mặc định 30)")
-    parser.add_argument("--interval", type=float, default=10.0,
-                         help="Khoảng thời gian giữa các lần gửi BPM lên API, đơn vị giây (mặc định 10)")
-    parser.add_argument("--debug", action="store_true",
-                         help="Hiện cửa sổ debug (ROI, motion) -- chỉ dùng khi test tại chỗ")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--api", default="http://localhost:5000")
+    parser.add_argument("--camera", type=int, default=0)
+    parser.add_argument("--window", type=float, default=30.0)
+    parser.add_argument("--interval", type=float, default=10.0)
+    parser.add_argument("--debug", action="store_true")
     return parser.parse_args()
 
 
+# ===================== PUSH BPM =====================
 def push_bpm(api_base, bpm_value):
-    """Gửi giá trị BPM mới lên backend qua POST /api/breathing."""
     url = f"{api_base}/api/breathing"
     try:
         resp = requests.post(
@@ -62,13 +75,14 @@ def push_bpm(api_base, bpm_value):
             timeout=5,
         )
         if resp.status_code == 201:
-            print(f"[worker] Đã gửi BPM={bpm_value:.2f} lên API")
+            print(f"[worker] BPM sent: {bpm_value:.2f}")
         else:
-            print(f"[worker] API trả lỗi {resp.status_code}: {resp.text}")
-    except requests.exceptions.RequestException as e:
-        print(f"[worker] Không gửi được lên API (sẽ thử lại lần sau): {e}")
+            print(f"[worker] API error {resp.status_code}")
+    except Exception as e:
+        print(f"[worker] push failed: {e}")
 
 
+# ===================== MAIN =====================
 def main():
     args = parse_args()
 
@@ -77,84 +91,119 @@ def main():
     tracker = MotionTracker()
 
     cap = cv2.VideoCapture(args.camera)
+
     fixed_roi = None
 
-    # Bộ đệm tín hiệu trượt: mỗi phần tử là (timestamp, motion_value)
     signal_buffer = deque()
+    chart_buffer = deque(maxlen=200)
+
     last_push_time = time.time()
 
-    print("Bắt đầu đo nhịp thở liên tục... (Ctrl+C để dừng)")
+    print("Breathing worker started...")
 
     try:
         while True:
             ret, frame = cap.read()
             if not ret:
-                print("[worker] Không đọc được frame từ camera, thử lại...")
-                time.sleep(0.5)
                 continue
 
-            # --- Khoá ROI vùng ngực (chỉ chạy YOLO khi chưa khoá được ROI) ---
+            # ================= ROI DETECTION =================
             if fixed_roi is None:
                 result = model(frame, verbose=False)[0]
 
                 if result.keypoints is not None and len(result.keypoints.xy) > 0:
                     person = result.keypoints.xy[0]
-                    ls, rs, lh, rh = person[5], person[6], person[11], person[12]
 
-                    x1, y1, x2, y2 = roi_extractor.get_chest_roi(frame, ls, rs, lh, rh)
+                    ls, rs = person[5], person[6]
+                    lh, rh = person[11], person[12]
+
+                    x1, y1, x2, y2 = roi_extractor.get_chest_roi(
+                        frame, ls, rs, lh, rh
+                    )
+
                     h, w = frame.shape[:2]
+
                     x1, y1 = max(0, int(x1)), max(0, int(y1))
                     x2, y2 = min(w, int(x2)), min(h, int(y2))
 
                     if x2 > x1 and y2 > y1:
                         fixed_roi = (x1, y1, x2, y2)
-                        print("[worker] ROI đã được khoá")
+                        print("[worker] ROI locked")
 
-            # --- Theo dõi motion trong ROI đã khoá ---
+            # ================= MOTION =================
             if fixed_roi is not None:
                 x1, y1, x2, y2 = fixed_roi
                 roi = frame[y1:y2, x1:x2]
+
                 motion = tracker.process(roi)
 
                 if motion is not None:
                     now = time.time()
-                    signal_buffer.append((now, motion))
 
-                    # Bỏ các điểm cũ hơn window_seconds (giữ cửa sổ trượt)
+                    signal_buffer.append((now, motion))
+                    chart_buffer.append(motion)
+
+                    # sliding window
                     while signal_buffer and now - signal_buffer[0][0] > args.window:
                         signal_buffer.popleft()
 
-                if args.debug:
-                    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                    cv2.imshow("ROI", roi)
-
+            # ================= VIDEO DISPLAY =================
             if args.debug:
-                cv2.imshow("Chest ROI", frame)
-                if cv2.waitKey(1) == 27:
-                    break
+                vis = frame.copy()
 
-            # --- Định kỳ tính BPM từ cửa sổ tín hiệu và gửi lên API ---
+                if fixed_roi is not None:
+                    x1, y1, x2, y2 = fixed_roi
+
+                    cv2.rectangle(vis, (x1, y1), (x2, y2), (0, 255, 0), 2)
+
+                    cv2.putText(
+                        vis,
+                        "Chest ROI Tracking",
+                        (x1, y1 - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.6,
+                        (0, 255, 0),
+                        2
+                    )
+
+                cv2.imshow("Chest Tracking", vis)
+
+            # ================= CHART =================
+            if args.debug:
+                draw_signal_chart(list(chart_buffer))
+
+            # ================= PUSH BPM =================
             now = time.time()
+
             if now - last_push_time >= args.interval and len(signal_buffer) >= 10:
+
                 timestamps = [t for t, _ in signal_buffer]
                 values = [v for _, v in signal_buffer]
+
                 duration = timestamps[-1] - timestamps[0]
 
-                # Chỉ tính khi đã có đủ dữ liệu (tránh BPM rác lúc mới khởi động)
                 if duration >= args.window * 0.5:
-                    filtered_signal = SignalFilter.smooth(values)
-                    bpm, peaks = BreathingRateEstimator.estimate(filtered_signal, duration)
+                    filtered = SignalFilter.smooth(values)
+
+                    bpm, _ = BreathingRateEstimator.estimate(
+                        filtered,
+                        duration
+                    )
+
                     push_bpm(args.api, bpm)
 
                 last_push_time = now
 
+            # ================= IMPORTANT =================
+            if cv2.waitKey(1) & 0xFF == 27:
+                break
+
     except KeyboardInterrupt:
-        print("[worker] Đã dừng theo yêu cầu (Ctrl+C)")
+        print("Stopped by user")
 
     finally:
         cap.release()
-        if args.debug:
-            cv2.destroyAllWindows()
+        cv2.destroyAllWindows()
 
 
 if __name__ == "__main__":

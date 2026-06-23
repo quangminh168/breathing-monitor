@@ -18,6 +18,7 @@ app = Flask(
 )
 
 
+
 def record_to_dict(record):
     return {
         "id": record.id,
