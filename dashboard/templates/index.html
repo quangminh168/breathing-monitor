@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Giám sát nhịp thở</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+  <main class="page">
+    <header class="page-header">
+      <div>
+        <p class="eyebrow">Breathing Monitor</p>
+        <h1>Nhịp thở theo thời gian thực</h1>
+      </div>
+      <div class="status">
+        <span class="status-dot" id="status-dot"></span>
+        <span id="status-text">Đang kết nối…</span>
+      </div>
+    </header>
+
+    <section class="hero-card">
+      <div class="breath-ring">
+        <div class="breath-pulse"></div>
+        <div class="breath-readout">
+          <span class="bpm-value" id="bpm-value">--</span>
+          <span class="bpm-unit">lần / phút</span>
+        </div>
+      </div>
+      <div class="hero-meta">
+        <p class="hero-meta-row"><span>Cập nhật lúc</span><strong id="last-updated">—</strong></p>
+        <p class="hero-meta-row"><span>Nguồn</span><strong id="last-source">—</strong></p>
+      </div>
+    </section>
+
+    <section class="stats-row">
+      <div class="stat-chip">
+        <span class="stat-label">Trung bình</span>
+        <span class="stat-value" id="stat-avg">--</span>
+      </div>
+      <div class="stat-chip">
+        <span class="stat-label">Thấp nhất</span>
+        <span class="stat-value" id="stat-min">--</span>
+      </div>
+      <div class="stat-chip">
+        <span class="stat-label">Cao nhất</span>
+        <span class="stat-value" id="stat-max">--</span>
+      </div>
+    </section>
+
+    <section class="chart-card">
+      <div class="chart-card-header">
+        <h2>Lịch sử nhịp thở</h2>
+        <span class="chart-card-caption">100 lần đo gần nhất</span>
+      </div>
+      <canvas id="history-chart" height="110"></canvas>
+    </section>
+  </main>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+  <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+</body>
+</html>
