@@ -1,31 +1,4 @@
-"""
-breathing_worker.py
---------------------
-Script CHAY DOC LAP tren may co camera. Do nhip tho theo TUNG KHOI 1
-PHUT KHONG CHONG LAP (giong test_roi.py goc: gom tin hieu, loc, uoc
-luong BPM, roi reset cho khoi tiep theo).
 
-HIEN THI: chi 2 cua so DESKTOP cuc bo tren may dang chay script nay
-(KHONG con web server / port 5001 nao nua):
-    - Cua so OpenCV "Chest ROI": video truc tiep + ROI + motion.
-    - Cua so matplotlib "Breathing Signal Analysis": bieu do Raw
-      Signal vs Filtered Signal, duoc VE LAI moi khi 1 khoi (1 phut)
-      tinh xong - khong phai chi ve 1 lan luc ket thuc nhu ban dau.
-
-Ket qua BPM van duoc POST len backend (POST /api/breathing) moi khoi,
-de luu vao MySQL va hien tren dashboard web.
-
-YEU CAU: cac module ban da co san phai nam cung cap voi script nay
-(hoac trong PYTHONPATH):
-    ai/roi_extractor.py
-    ai/motion_tracker.py
-    ai/signal_filter.py
-    ai/breathing_rate.py
-
-Cach chay:
-    python breathing_worker.py --api http://127.0.0.1:5000
-    python breathing_worker.py --interval 30
-"""
 
 import argparse
 import time

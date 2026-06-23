@@ -1,0 +1,17 @@
+# Core
+numpy
+opencv-python
+matplotlib
+requests
+
+# AI / CV
+ultralytics
+
+# Backend
+flask
+flask-cors
+sqlalchemy
+
+# Optional but useful for performance
+scipy
+pandas
