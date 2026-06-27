@@ -231,6 +231,12 @@ h1 {
   gap: 8px;
 }
 
+.chart-card-header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .chart-card-header h2 {
   margin: 0;
   font-family: var(--font-display);
@@ -239,6 +245,30 @@ h1 {
 
 .chart-card-caption {
   font-size: 12px;
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+}
+
+.reset-zoom-btn {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--teal-deep);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 12px;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.reset-zoom-btn:hover {
+  background: rgba(79, 169, 140, 0.12);
+  border-color: var(--teal-light);
+}
+
+.chart-hint {
+  margin: 10px 2px 0;
+  font-size: 11px;
   color: var(--ink-muted);
   font-family: var(--font-mono);
 }

@@ -115,18 +115,53 @@ function renderChart(records) {
             fill: true,
             tension: 0.35,
             pointRadius: 0,
+            pointHoverRadius: 5,
+            pointHitRadius: 12,
             borderWidth: 2,
           },
         ],
       },
       options: {
         responsive: true,
-        plugins: { legend: { display: false } },
+        // "nearest" + intersect:false -> chi can ren chuot GAN diem
+        // (khong can trung tuyet doi vao diem an) la tooltip hien ra.
+        interaction: {
+          mode: "nearest",
+          axis: "x",
+          intersect: false,
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              title: (items) => `Thời gian: ${items[0]?.label ?? ""}`,
+              label: (item) => `BPM: ${Number(item.parsed.y).toFixed(1)} lần/phút`,
+            },
+          },
+          zoom: {
+            pan: {
+              enabled: true,
+              mode: "x",
+            },
+            zoom: {
+              wheel: { enabled: true },
+              pinch: { enabled: true },
+              mode: "x",
+            },
+            limits: {
+              x: { minRange: 5 }, // khong cho zoom sau hon 5 diem du lieu
+            },
+          },
+        },
         scales: {
           x: { grid: { display: false }, ticks: { maxTicksLimit: 6 } },
           y: { grid: { color: "#E2E8E4" }, suggestedMin: 5, suggestedMax: 30 },
         },
       },
+    });
+
+    canvas.addEventListener("dblclick", () => {
+      if (chart) chart.resetZoom();
     });
   } catch (err) {
     console.error("[dashboard] Lỗi khi vẽ chart lịch sử:", err);
@@ -178,6 +213,13 @@ async function fetchHistory() {
 function poll() {
   fetchLatest();
   fetchHistory();
+}
+
+const resetZoomBtn = document.getElementById("reset-zoom-btn");
+if (resetZoomBtn) {
+  resetZoomBtn.addEventListener("click", () => {
+    if (chart) chart.resetZoom();
+  });
 }
 
 poll();

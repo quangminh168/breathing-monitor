@@ -54,13 +54,19 @@
     <section class="chart-card">
       <div class="chart-card-header">
         <h2>Lịch sử nhịp thở</h2>
-        <span class="chart-card-caption">100 lần đo gần nhất</span>
+        <div class="chart-card-header-right">
+          <span class="chart-card-caption">100 lần đo gần nhất</span>
+          <button type="button" id="reset-zoom-btn" class="reset-zoom-btn">Reset zoom</button>
+        </div>
       </div>
       <canvas id="history-chart" height="110"></canvas>
+      <p class="chart-hint">Cuộn chuột để zoom · kéo để di chuyển · nhấp đôi hoặc bấm "Reset zoom" để về mặc định</p>
     </section>
   </main>
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/hammerjs"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom"></script>
   <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
 </body>
 </html>
