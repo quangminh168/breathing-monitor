@@ -1,6 +1,11 @@
 const POLL_INTERVAL_MS = 5000;
 const HISTORY_LIMIT = 100;
-const STALE_AFTER_MS = 30000; // quá 30s không có dữ liệu mới -> coi là mất kết nối
+// Worker hien gui BPM moi 60s (xem --interval trong breathing_worker.py).
+// Nguong nay PHAI lon hon chu ky gui cua worker, neu khong dashboard se
+// bao "mat ket noi" mot cach gia tao giua 2 lan gui. Neu ban doi
+// --interval sang gia tri khac 60, nho cap nhat lai so nay cho khop
+// (vd interval=30 -> dat khoang 45000-50000).
+const STALE_AFTER_MS = 90000; // 90s = 60s chu ky + 30s du phong tre mang
 
 const bpmValueEl = document.getElementById("bpm-value");
 const lastUpdatedEl = document.getElementById("last-updated");
@@ -35,7 +40,7 @@ function updateLatest(record) {
 
   const timestamp = record.recorded_at || record.created_at;
 
-  bpmValueEl.textContent = record.bpm.toFixed(1);
+  bpmValueEl.textContent = Number(record.bpm).toFixed(1);
   lastUpdatedEl.textContent = formatTime(timestamp);
   lastSourceEl.textContent = record.source || "—";
 
@@ -46,60 +51,86 @@ function updateLatest(record) {
   setStatus(ageMs <= STALE_AFTER_MS);
 }
 
+// Tách riêng try/catch cho updateStats và renderChart -- để nếu 1 trong 2
+// bị lỗi thì cái còn lại vẫn chạy được, không "rớt" theo nhau.
+
 function updateStats(records) {
-  if (!records.length) {
-    statAvgEl.textContent = "--";
-    statMinEl.textContent = "--";
-    statMaxEl.textContent = "--";
-    return;
+  try {
+    if (!records || !records.length) {
+      statAvgEl.textContent = "--";
+      statMinEl.textContent = "--";
+      statMaxEl.textContent = "--";
+      return;
+    }
+    const values = records.map((r) => Number(r.bpm)).filter((v) => !Number.isNaN(v));
+    if (!values.length) {
+      statAvgEl.textContent = "--";
+      statMinEl.textContent = "--";
+      statMaxEl.textContent = "--";
+      return;
+    }
+    const avg = values.reduce((a, b) => a + b, 0) / values.length;
+    statAvgEl.textContent = avg.toFixed(1);
+    statMinEl.textContent = Math.min(...values).toFixed(1);
+    statMaxEl.textContent = Math.max(...values).toFixed(1);
+  } catch (err) {
+    console.error("[dashboard] Lỗi khi tính avg/min/max:", err);
   }
-  const values = records.map((r) => r.bpm);
-  const avg = values.reduce((a, b) => a + b, 0) / values.length;
-  statAvgEl.textContent = avg.toFixed(1);
-  statMinEl.textContent = Math.min(...values).toFixed(1);
-  statMaxEl.textContent = Math.max(...values).toFixed(1);
 }
 
 function renderChart(records) {
-  // API trả về mới nhất trước -> đảo lại để vẽ theo thời gian tăng dần
-  const ordered = [...records].reverse();
-  const labels = ordered.map((r) => formatTime(r.recorded_at || r.created_at));
-  const values = ordered.map((r) => r.bpm);
+  try {
+    const ordered = [...records].reverse();
+    const labels = ordered.map((r) => formatTime(r.recorded_at || r.created_at));
+    const values = ordered.map((r) => Number(r.bpm));
 
-  if (chart) {
-    chart.data.labels = labels;
-    chart.data.datasets[0].data = values;
-    chart.update();
-    return;
-  }
+    if (chart) {
+      chart.data.labels = labels;
+      chart.data.datasets[0].data = values;
+      chart.update();
+      return;
+    }
 
-  const ctx = document.getElementById("history-chart").getContext("2d");
-  chart = new Chart(ctx, {
-    type: "line",
-    data: {
-      labels,
-      datasets: [
-        {
-          label: "BPM",
-          data: values,
-          borderColor: "#2F6B5E",
-          backgroundColor: "rgba(79, 169, 140, 0.12)",
-          fill: true,
-          tension: 0.35,
-          pointRadius: 0,
-          borderWidth: 2,
-        },
-      ],
-    },
-    options: {
-      responsive: true,
-      plugins: { legend: { display: false } },
-      scales: {
-        x: { grid: { display: false }, ticks: { maxTicksLimit: 6 } },
-        y: { grid: { color: "#E2E8E4" }, suggestedMin: 5, suggestedMax: 30 },
+    const canvas = document.getElementById("history-chart");
+    if (!canvas) {
+      console.error("[dashboard] Không tìm thấy canvas #history-chart trong DOM");
+      return;
+    }
+    if (typeof Chart === "undefined") {
+      console.error("[dashboard] Chart.js chưa được load (kiểm tra mạng/CDN)");
+      return;
+    }
+
+    const ctx = canvas.getContext("2d");
+    chart = new Chart(ctx, {
+      type: "line",
+      data: {
+        labels,
+        datasets: [
+          {
+            label: "BPM",
+            data: values,
+            borderColor: "#2F6B5E",
+            backgroundColor: "rgba(79, 169, 140, 0.12)",
+            fill: true,
+            tension: 0.35,
+            pointRadius: 0,
+            borderWidth: 2,
+          },
+        ],
       },
-    },
-  });
+      options: {
+        responsive: true,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { grid: { display: false }, ticks: { maxTicksLimit: 6 } },
+          y: { grid: { color: "#E2E8E4" }, suggestedMin: 5, suggestedMax: 30 },
+        },
+      },
+    });
+  } catch (err) {
+    console.error("[dashboard] Lỗi khi vẽ chart lịch sử:", err);
+  }
 }
 
 async function fetchLatest() {
@@ -109,22 +140,38 @@ async function fetchLatest() {
       updateLatest(null);
       return;
     }
+    if (!res.ok) {
+      console.error(`[dashboard] /api/latest trả lỗi HTTP ${res.status}`);
+      return;
+    }
     const data = await res.json();
     updateLatest(data);
   } catch (err) {
     setStatus(false);
-    console.error("Lỗi khi lấy /api/latest:", err);
+    console.error("[dashboard] Lỗi khi lấy /api/latest:", err);
   }
 }
 
 async function fetchHistory() {
   try {
     const res = await fetch(`/api/history?limit=${HISTORY_LIMIT}`);
+    if (!res.ok) {
+      console.error(`[dashboard] /api/history trả lỗi HTTP ${res.status}`);
+      return;
+    }
     const data = await res.json();
-    renderChart(data);
-    updateStats(data);
+    const records = Array.isArray(data) ? data : [];
+
+    // Log này giúp xác định ngay nguyên nhân: nếu thấy số > 0 ở console
+    // nhưng chart/stat vẫn trống -> lỗi nằm ở renderChart/updateStats
+    // (đã tách try/catch riêng ở trên). Nếu thấy 0 -> chưa có dữ liệu
+    // thật trong DB (kiểm tra lại worker / migration DB).
+    console.log(`[dashboard] /api/history trả về ${records.length} bản ghi`);
+
+    renderChart(records);
+    updateStats(records);
   } catch (err) {
-    console.error("Lỗi khi lấy /api/history:", err);
+    console.error("[dashboard] Lỗi khi lấy /api/history:", err);
   }
 }
 

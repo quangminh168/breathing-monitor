@@ -28,6 +28,10 @@ class MotionTracker:
             (200, 200)
         )
 
+        # Lam mo nhe truoc khi tinh optical flow -> giam nhieu cam bien
+        # tung pixel, flow uoc luong on dinh hon (it bi giat do hat sang).
+        gray = cv2.GaussianBlur(gray, (5, 5), 0)
+
         if self.prev_gray is None:
 
             self.prev_gray = gray
@@ -49,8 +53,11 @@ class MotionTracker:
 
         vertical_motion = flow[..., 1]
 
+        # Dung MEDIAN thay vi MEAN: ben hon voi cac vector flow loi cuc bo
+        # (vai/ao it texture lam Farneback uoc luong sai o mot so pixel,
+        # mean bi keo lech boi nhung outlier nay, median thi khong).
         motion_value = float(
-            np.mean(vertical_motion)
+            np.median(vertical_motion)
         )
 
         self.signal.append(
